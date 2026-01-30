@@ -1,0 +1,48 @@
+{
+  "name": "memdata-mcp",
+  "version": "1.1.0",
+  "description": "MCP server for MemData - persistent memory for AI agents",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "claude",
+    "ai",
+    "memory",
+    "semantic-search",
+    "embeddings"
+  ],
+  "author": "The Lab Venice",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/thelabvenice/memdata-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/thelabvenice/memdata-mcp/issues"
+  },
+  "homepage": "https://memdata.ai",
+  "bin": {
+    "memdata-mcp": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.1.0",
+    "typescript": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
