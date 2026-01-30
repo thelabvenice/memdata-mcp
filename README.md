@@ -1,8 +1,24 @@
 # memdata-mcp
 
+[![npm version](https://img.shields.io/npm/v/memdata-mcp.svg)](https://www.npmjs.com/package/memdata-mcp)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 MCP server for [MemData](https://memdata.ai) - persistent memory for AI agents.
 
 Give Claude, Cursor, or any MCP-compatible AI long-term memory across conversations.
+
+**What it does:** Store notes, decisions, and context → retrieve them semantically later. Your AI remembers everything.
+
+## Why MemData?
+
+AI assistants forget everything between sessions. MemData fixes that:
+
+- **Ingest** → Drop in meeting notes, docs, decisions
+- **Chunk & Embed** → Automatically split and vectorize
+- **Query** → Ask questions, get relevant context back
+- **Tag** → AI auto-tags content for better retrieval
+
+Works with Claude Desktop, Claude Code, Cursor, and any MCP client.
 
 ## Quick Start
 
@@ -134,11 +150,30 @@ This is a thin MCP client that calls the MemData API. It does not:
 
 You can inspect the source code in `src/index.ts`.
 
+## Example Usage
+
+Once configured, just talk to your AI:
+
+```
+You: "Remember that we chose PostgreSQL for the user service"
+AI: [calls memdata_ingest] → Stored in memory
+
+... days later ...
+
+You: "What database are we using for users?"
+AI: [calls memdata_query] → "PostgreSQL for the user service" (73% match)
+```
+
 ## Links
 
 - [MemData](https://memdata.ai) - Main site
 - [Dashboard](https://memdata.ai/dashboard) - Manage your memory
-- [Docs](https://memdata.ai/docs) - Full documentation
+- [API Docs](https://memdata.ai/docs) - Full documentation
+- [GitHub](https://github.com/thelabvenice/memdata-mcp) - This repo
+
+## Contributing
+
+Issues and PRs welcome! This is the open-source MCP client for the hosted MemData service.
 
 ## License
 
