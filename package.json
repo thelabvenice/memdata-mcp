@@ -1,6 +1,6 @@
 {
   "name": "memdata-mcp",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "mcpName": "io.github.thelabvenice/memdata",
   "description": "MCP server for MemData - persistent memory for AI agents",
   "keywords": [

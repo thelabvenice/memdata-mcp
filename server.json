@@ -1,17 +1,17 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.thelabvenice/memdata",
-  "description": "Persistent memory for AI agents. Store notes, decisions, and context - retrieve them semantically later. Your AI remembers everything.",
+  "description": "Persistent memory for AI agents. Store context, retrieve it semantically.",
   "repository": {
     "url": "https://github.com/thelabvenice/memdata-mcp",
     "source": "github"
   },
-  "version": "1.4.0",
+  "version": "1.4.1",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "memdata-mcp",
-      "version": "1.4.0",
+      "version": "1.4.1",
       "transport": {
         "type": "stdio"
       },
