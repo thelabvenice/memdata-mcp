@@ -126,16 +126,42 @@ async function ingestContent(
 /**
  * Query memory for relevant context
  */
+interface NarrativeInsight {
+  type: string;
+  content: string;
+  confidence: number;
+  evidence: string;
+  chunk_id: string;
+}
+
+interface NarrativeLayer {
+  decisions?: NarrativeInsight[];
+  causality?: NarrativeInsight[];
+  patterns?: NarrativeInsight[];
+  implications?: NarrativeInsight[];
+  gaps?: NarrativeInsight[];
+}
+
+interface QueryResult {
+  success: boolean;
+  results?: Array<{ text: string; source: string; score: number }>;
+  narrative?: NarrativeLayer;
+  narrative_count?: number;
+  message?: string;
+}
+
 async function queryMemory(
   query: string,
   limit: number = 5
-): Promise<{ success: boolean; results?: Array<{ text: string; source: string; score: number }>; message?: string }> {
+): Promise<QueryResult> {
   const result = (await callAPI('/api/memdata/query', {
     query,
     limit,
   })) as {
     success: boolean;
     results?: Array<{ chunk_text: string; source_name: string; similarity_score: number }>;
+    narrative?: NarrativeLayer;
+    narrative_count?: number;
     error?: string;
   };
 
@@ -145,6 +171,8 @@ async function queryMemory(
 
   return {
     success: true,
+    narrative: result.narrative,
+    narrative_count: result.narrative_count,
     results: (result.results || []).map((r) => ({
       text: r.chunk_text,
       source: r.source_name,
@@ -207,6 +235,206 @@ async function deleteArtifact(
     deletedChunks: result.deleted_chunks,
     message: result.message,
   };
+}
+
+/**
+ * Get agent identity (who am I)
+ */
+async function getIdentity(): Promise<{
+  success: boolean;
+  identity?: {
+    agent_name: string | null;
+    identity_summary: string | null;
+    session_count: number;
+  };
+  last_session?: Record<string, unknown>;
+  working_on?: string | null;
+  memory_stats?: {
+    total_memories: number;
+    oldest_memory: string | null;
+    newest_memory: string | null;
+  };
+  recent_activity?: Array<{ source: string; date: string }>;
+  message?: string;
+}> {
+  try {
+    const result = (await callAPIGet('/api/memdata/identity')) as {
+      success: boolean;
+      identity?: {
+        agent_name: string | null;
+        identity_summary: string | null;
+        session_count: number;
+      };
+      last_session?: Record<string, unknown>;
+      working_on?: string | null;
+      memory_stats?: {
+        total_memories: number;
+        oldest_memory: string | null;
+        newest_memory: string | null;
+      };
+      recent_activity?: Array<{ source: string; date: string }>;
+      error?: string;
+    };
+
+    if (!result.success) {
+      return { success: false, message: result.error || 'Unknown error' };
+    }
+
+    return {
+      success: true,
+      identity: result.identity,
+      last_session: result.last_session,
+      working_on: result.working_on,
+      memory_stats: result.memory_stats,
+      recent_activity: result.recent_activity,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+}
+
+/**
+ * End session with handoff
+ */
+async function endSession(
+  summary: string,
+  working_on?: string,
+  context?: Record<string, unknown>
+): Promise<{ success: boolean; message?: string }> {
+  try {
+    const result = (await callAPI('/api/memdata/identity', {
+      working_on,
+      session_handoff: {
+        summary,
+        context: context || {},
+        ended_at: new Date().toISOString(),
+      },
+    })) as { success: boolean; error?: string; message?: string };
+
+    if (!result.success) {
+      return { success: false, message: result.error || 'Unknown error' };
+    }
+
+    return { success: true, message: result.message };
+  } catch (error) {
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+}
+
+/**
+ * Update agent identity
+ */
+async function updateIdentity(
+  agent_name?: string,
+  identity_summary?: string
+): Promise<{ success: boolean; message?: string }> {
+  try {
+    const result = (await callAPI('/api/memdata/identity', {
+      agent_name,
+      identity_summary,
+    })) as { success: boolean; error?: string; message?: string };
+
+    if (!result.success) {
+      return { success: false, message: result.error || 'Unknown error' };
+    }
+
+    return { success: true, message: result.message };
+  } catch (error) {
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+}
+
+/**
+ * Query with date filtering
+ */
+async function queryMemoryWithDates(
+  queryText: string,
+  limit: number = 5,
+  since?: string,
+  until?: string
+): Promise<{ success: boolean; results?: Array<{ text: string; source: string; score: number; date: string }>; message?: string }> {
+  const body: Record<string, unknown> = { query: queryText, limit };
+  if (since) body.since = since;
+  if (until) body.until = until;
+
+  const result = (await callAPI('/api/memdata/query', body)) as {
+    success: boolean;
+    results?: Array<{ chunk_text: string; source_name: string; similarity_score: number; created_at: string }>;
+    error?: string;
+  };
+
+  if (!result.success) {
+    return { success: false, message: result.error || 'Unknown error' };
+  }
+
+  return {
+    success: true,
+    results: (result.results || []).map((r) => ({
+      text: r.chunk_text,
+      source: r.source_name,
+      score: Math.round(r.similarity_score * 1000) / 1000,
+      date: r.created_at.split('T')[0],
+    })),
+  };
+}
+
+/**
+ * Get relationships for an entity
+ */
+async function getRelationships(
+  entity: string,
+  type?: string,
+  limit: number = 10
+): Promise<{
+  success: boolean;
+  entity_name?: string;
+  entity_type?: string;
+  relationships?: Array<{ name: string; type: string; strength: number }>;
+  message?: string;
+}> {
+  try {
+    const result = (await callAPI('/api/memdata/relationships', {
+      entity,
+      type,
+      limit,
+    })) as {
+      success: boolean;
+      entity?: string;
+      entity_type?: string;
+      results?: Array<{ name: string; type: string; co_occurrence_count: number }>;
+      error?: string;
+      message?: string;
+    };
+
+    if (!result.success) {
+      return { success: false, message: result.error || result.message || 'Unknown error' };
+    }
+
+    return {
+      success: true,
+      entity_name: result.entity,
+      entity_type: result.entity_type,
+      relationships: (result.results || []).map((r) => ({
+        name: r.name,
+        type: r.type,
+        strength: r.co_occurrence_count,
+      })),
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
 }
 
 /**
@@ -278,7 +506,7 @@ server.tool(
         content: [
           {
             type: 'text' as const,
-            text: `Successfully stored in memory:\n- Artifact ID: ${result.artifactId}\n- Chunks created: ${result.chunkCount}\n- Source: ${name}`,
+            text: `✅ Stored in memory:\n- Source: ${name}\n- Chunks: ${result.chunkCount}\n- ID: ${result.artifactId}\n\n🏷️ AI tagging & narrative extraction will run in background (~2 min).`,
           },
         ],
       };
@@ -317,15 +545,62 @@ server.tool(
         };
       }
 
+      // Add match quality indicator based on score
+      const getMatchQuality = (score: number): string => {
+        if (score >= 0.7) return '🟢'; // Strong match
+        if (score >= 0.5) return '🟡'; // Good match
+        if (score >= 0.35) return '🟠'; // Partial match
+        return '🔴'; // Weak match
+      };
+
       const formatted = result.results
-        .map((r, i) => `[${i + 1}] (${(r.score * 100).toFixed(1)}% match) ${r.source}\n${r.text}`)
+        .map((r, i) => `[${i + 1}] ${getMatchQuality(r.score)} ${(r.score * 100).toFixed(1)}% | ${r.source}\n${r.text}`)
         .join('\n\n---\n\n');
+
+      // Format narrative layer if present
+      let narrativeSection = '';
+      if (result.narrative && (result.narrative_count ?? 0) > 0) {
+        const parts: string[] = [];
+
+        if (result.narrative.decisions?.length) {
+          parts.push('DECISIONS:\n' + result.narrative.decisions
+            .map((n: { content: string; confidence: number }) => `  • ${n.content} (${Math.round(n.confidence * 100)}%)`)
+            .join('\n'));
+        }
+        if (result.narrative.causality?.length) {
+          parts.push('CAUSALITY:\n' + result.narrative.causality
+            .map((n: { content: string; confidence: number }) => `  • ${n.content} (${Math.round(n.confidence * 100)}%)`)
+            .join('\n'));
+        }
+        if (result.narrative.patterns?.length) {
+          parts.push('PATTERNS:\n' + result.narrative.patterns
+            .map((n: { content: string; confidence: number }) => `  • ${n.content} (${Math.round(n.confidence * 100)}%)`)
+            .join('\n'));
+        }
+        if (result.narrative.implications?.length) {
+          parts.push('IMPLICATIONS:\n' + result.narrative.implications
+            .map((n: { content: string; confidence: number }) => `  • ${n.content} (${Math.round(n.confidence * 100)}%)`)
+            .join('\n'));
+        }
+        if (result.narrative.gaps?.length) {
+          parts.push('GAPS:\n' + result.narrative.gaps
+            .map((n: { content: string; confidence: number }) => `  • ${n.content} (${Math.round(n.confidence * 100)}%)`)
+            .join('\n'));
+        }
+
+        if (parts.length > 0) {
+          narrativeSection = '\n\n═══ NARRATIVE INSIGHTS ═══\n' + parts.join('\n\n');
+        }
+      }
+
+      // Add score legend for first-time users
+      const scoreLegend = '\n\n---\n_Match quality: 🟢 >70% strong | 🟡 >50% good | 🟠 >35% partial | 🔴 weak_';
 
       return {
         content: [
           {
             type: 'text' as const,
-            text: `Found ${result.results.length} relevant memories:\n\n${formatted}`,
+            text: `Found ${result.results.length} relevant memories:\n\n${formatted}${narrativeSection}${scoreLegend}`,
           },
         ],
       };
@@ -367,11 +642,15 @@ server.tool(
         .map((a) => `- ${a.name} (${a.chunks} chunks, ${a.date})\n  ID: ${a.id}`)
         .join('\n');
 
+      const countNote = result.artifacts.length >= limit
+        ? `\n\n_Showing ${result.artifacts.length} memories. Use \`limit\` param for more._`
+        : '';
+
       return {
         content: [
           {
             type: 'text' as const,
-            text: `Stored memories (${result.artifacts.length}):\n\n${formatted}`,
+            text: `Stored memories (${result.artifacts.length}):\n\n${formatted}${countNote}`,
           },
         ],
       };
@@ -452,6 +731,265 @@ server.tool(
       const message = error instanceof Error ? error.message : 'Unknown error';
       return {
         content: [{ type: 'text' as const, text: `Failed to get status: ${message}` }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// Register whoami tool
+server.tool(
+  'memdata_whoami',
+  'Get your agent identity and context at session start. Returns your name, identity summary, what you were working on, recent activity, and memory stats. Call this at the beginning of each session to remember who you are.',
+  {},
+  async () => {
+    try {
+      const result = await getIdentity();
+
+      if (!result.success) {
+        return {
+          content: [{ type: 'text' as const, text: `Failed to get identity: ${result.message}` }],
+          isError: true,
+        };
+      }
+
+      const identity = result.identity!;
+      const stats = result.memory_stats!;
+      const recent = result.recent_activity || [];
+
+      let response = `# Who Am I\n\n`;
+      response += `**Name:** ${identity.agent_name || 'Not set'}\n`;
+      response += `**Identity:** ${identity.identity_summary || 'Not set'}\n`;
+      response += `**Session #:** ${identity.session_count}\n`;
+
+      // Prompt to set identity if not configured
+      if (!identity.agent_name && !identity.identity_summary) {
+        response += `\n> 💡 **First time?** Set your identity with \`memdata_set_identity\` to personalize your memory.\n`;
+      }
+
+      response += `\n`;
+
+      // Prioritize showing what we were working on - this is the most important continuity info
+      if (result.working_on) {
+        response += `## 🎯 Continue Working On\n${result.working_on}\n\n`;
+      }
+
+      if (result.last_session && Object.keys(result.last_session).length > 0) {
+        response += `## Last Session Handoff\n${JSON.stringify(result.last_session, null, 2)}\n\n`;
+      }
+
+      response += `## Memory Stats\n`;
+      response += `- Total memories: ${stats.total_memories}\n`;
+      response += `- Oldest: ${stats.oldest_memory || 'None'}\n`;
+      response += `- Newest: ${stats.newest_memory || 'None'}\n\n`;
+
+      // Deduplicate recent activity by source name (chunks from same artifact appear once)
+      if (recent.length > 0) {
+        const seen = new Set<string>();
+        const uniqueRecent = recent.filter((r) => {
+          if (seen.has(r.source)) return false;
+          seen.add(r.source);
+          return true;
+        });
+
+        response += `## Recent Activity\n`;
+        uniqueRecent.slice(0, 5).forEach((r) => {
+          response += `- ${r.source} (${r.date})\n`;
+        });
+      }
+
+      // Remind about session_end if this isn't the first session
+      if (identity.session_count > 1 && !result.working_on) {
+        response += `\n> 💡 **Tip:** Use \`memdata_session_end\` before ending to preserve context for next time.\n`;
+      }
+
+      return {
+        content: [{ type: 'text' as const, text: response }],
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      return {
+        content: [{ type: 'text' as const, text: `Failed to get identity: ${message}` }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// Register session end tool
+server.tool(
+  'memdata_session_end',
+  'Save a session handoff before ending. Stores what you were working on and context for the next session. Call this before context compression or when ending a work session.',
+  {
+    summary: z.string().describe('Brief summary of what happened this session'),
+    working_on: z.string().optional().describe('What you are currently working on (will be shown at next session start)'),
+    context: z.record(z.unknown()).optional().describe('Additional context to preserve (JSON object)'),
+  },
+  async ({ summary, working_on, context }) => {
+    try {
+      const result = await endSession(summary, working_on, context as Record<string, unknown>);
+
+      if (!result.success) {
+        return {
+          content: [{ type: 'text' as const, text: `Failed to save handoff: ${result.message}` }],
+          isError: true,
+        };
+      }
+
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: `Session handoff saved.\n\nNext session will see:\n- Working on: ${working_on || 'Not specified'}\n- Summary: ${summary.substring(0, 100)}...`,
+          },
+        ],
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      return {
+        content: [{ type: 'text' as const, text: `Failed to save handoff: ${message}` }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// Register identity update tool
+server.tool(
+  'memdata_set_identity',
+  'Set or update your agent identity. Use this to establish who you are and your purpose.',
+  {
+    agent_name: z.string().optional().describe('Your agent name (e.g., "MemBrain", "ResearchBot")'),
+    identity_summary: z.string().optional().describe('Brief description of who you are and your purpose'),
+  },
+  async ({ agent_name, identity_summary }) => {
+    try {
+      const result = await updateIdentity(agent_name, identity_summary);
+
+      if (!result.success) {
+        return {
+          content: [{ type: 'text' as const, text: `Failed to update identity: ${result.message}` }],
+          isError: true,
+        };
+      }
+
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: `Identity updated:\n- Name: ${agent_name || '(unchanged)'}\n- Summary: ${identity_summary || '(unchanged)'}`,
+          },
+        ],
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      return {
+        content: [{ type: 'text' as const, text: `Failed to update identity: ${message}` }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// Register relationships tool
+server.tool(
+  'memdata_relationships',
+  'Find entities related to a person, company, or concept in your memory. Shows who/what appears together in the same context.',
+  {
+    entity: z.string().describe('Name of the entity to find relationships for (e.g., "John Smith", "Acme Corp", "authentication")'),
+    type: z.string().optional().describe('Filter to specific entity type (person, company, project, topic, concept)'),
+    limit: z.number().optional().default(10).describe('Maximum relationships to return (default: 10)'),
+  },
+  async ({ entity, type, limit }) => {
+    try {
+      const result = await getRelationships(entity, type, limit);
+
+      if (!result.success) {
+        return {
+          content: [{ type: 'text' as const, text: `Failed to get relationships: ${result.message}` }],
+          isError: true,
+        };
+      }
+
+      if (!result.relationships || result.relationships.length === 0) {
+        return {
+          content: [{ type: 'text' as const, text: `No relationships found for "${entity}".` }],
+        };
+      }
+
+      let response = `# Relationships for ${result.entity_name} (${result.entity_type})\n\n`;
+      result.relationships.forEach((r) => {
+        response += `- **${r.name}** (${r.type}) - ${r.strength} co-occurrences\n`;
+      });
+
+      return {
+        content: [{ type: 'text' as const, text: response }],
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      return {
+        content: [{ type: 'text' as const, text: `Failed to get relationships: ${message}` }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// Register time-aware query tool
+server.tool(
+  'memdata_query_timerange',
+  'Search memory within a specific time range. Use for queries like "what did I work on last week" or "meetings from January".',
+  {
+    query: z.string().describe('Natural language search query'),
+    since: z.string().optional().describe('ISO date string - only return results after this date (e.g., "2026-01-01")'),
+    until: z.string().optional().describe('ISO date string - only return results before this date (e.g., "2026-01-31")'),
+    limit: z.number().optional().default(5).describe('Maximum number of results (default: 5, max: 20)'),
+  },
+  async ({ query, since, until, limit }) => {
+    try {
+      const result = await queryMemoryWithDates(query, Math.min(limit, 20), since, until);
+
+      if (!result.success) {
+        return {
+          content: [{ type: 'text' as const, text: `Failed to query: ${result.message}` }],
+          isError: true,
+        };
+      }
+
+      if (!result.results || result.results.length === 0) {
+        let msg = `No memories found for "${query}"`;
+        if (since || until) {
+          msg += ` in date range ${since || 'start'} to ${until || 'now'}`;
+        }
+        return {
+          content: [{ type: 'text' as const, text: msg }],
+        };
+      }
+
+      // Add match quality indicator based on score
+      const getMatchQuality = (score: number): string => {
+        if (score >= 0.7) return '🟢';
+        if (score >= 0.5) return '🟡';
+        if (score >= 0.35) return '🟠';
+        return '🔴';
+      };
+
+      const formatted = result.results
+        .map((r, i) => `[${i + 1}] ${getMatchQuality(r.score)} ${(r.score * 100).toFixed(1)}% | ${r.date} | ${r.source}\n${r.text}`)
+        .join('\n\n---\n\n');
+
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: `Found ${result.results.length} memories:\n\n${formatted}`,
+          },
+        ],
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      return {
+        content: [{ type: 'text' as const, text: `Failed to query memory: ${message}` }],
         isError: true,
       };
     }
