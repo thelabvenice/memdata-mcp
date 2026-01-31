@@ -96,16 +96,20 @@ You should now see MemData tools available.
 
 | Tool | Description |
 |------|-------------|
-| `memdata_whoami` | Get agent identity at session start - name, context, recent activity |
+| `memdata_session_start` | 🚀 CALL FIRST - Get identity, last session handoff, recent activity |
 | `memdata_set_identity` | Set your agent name and identity summary |
 | `memdata_session_end` | Save a handoff before session ends - preserved for next session |
 | `memdata_query_timerange` | Search with date filters (since/until) |
 | `memdata_relationships` | Find related entities (people, companies, projects) |
 
+### v1.5.0 - Session Start Rename
+
+- **`memdata_whoami` → `memdata_session_start`** - Renamed for clarity. The name now signals "call this first at every session". Description includes 🚀 emoji to catch attention in tool lists.
+
 ### v1.4.0 UX Improvements
 
 - **Visual match quality** - Query results show 🟢🟡🟠🔴 indicators for match strength
-- **Smarter whoami** - Prompts to set identity on first use, deduplicates recent activity
+- **Smarter session_start** - Prompts to set identity on first use, deduplicates recent activity
 - **Better ingest feedback** - Shows chunk count and explains async AI tagging
 - **Session continuity** - Emphasizes "Continue Working On" and reminds to use `session_end`
 
@@ -145,15 +149,17 @@ Delete a memory by artifact ID (get IDs from `memdata_list`).
 
 Check API connectivity and storage usage.
 
-### `memdata_whoami`
+### `memdata_session_start`
 
-Get your identity and context at session start. Call this first thing each session.
+🚀 **Call this first** at the start of every session. Essential for session continuity.
 
 ```
-"Who am I? What was I working on?"
+"Start my session" / "What was I working on?"
 ```
 
 Returns: agent name, identity summary, session count, last session handoff, recent activity.
+
+> **v1.5.0**: Renamed from `memdata_whoami` for clarity - the name signals "call me first".
 
 ### `memdata_set_identity`
 

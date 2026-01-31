@@ -737,10 +737,10 @@ server.tool(
   }
 );
 
-// Register whoami tool
+// Register session start tool (renamed from whoami for clarity)
 server.tool(
-  'memdata_whoami',
-  'Get your agent identity and context at session start. Returns your name, identity summary, what you were working on, recent activity, and memory stats. Call this at the beginning of each session to remember who you are.',
+  'memdata_session_start',
+  '🚀 CALL THIS FIRST at the start of every session. Returns your identity, what you were working on, last session handoff, recent activity, and memory stats. Essential for session continuity.',
   {},
   async () => {
     try {
@@ -757,7 +757,7 @@ server.tool(
       const stats = result.memory_stats!;
       const recent = result.recent_activity || [];
 
-      let response = `# Who Am I\n\n`;
+      let response = `# Session Start\n\n`;
       response += `**Name:** ${identity.agent_name || 'Not set'}\n`;
       response += `**Identity:** ${identity.identity_summary || 'Not set'}\n`;
       response += `**Session #:** ${identity.session_count}\n`;
