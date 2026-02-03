@@ -9,8 +9,17 @@
  *   npx memdata-mcp
  *
  * Environment Variables:
- *   MEMDATA_API_KEY - Your MemData API key (required, starts with md_)
+ *   MEMDATA_API_KEY - Your MemData API key (starts with md_)
+ *   X402_WALLET_KEY - Your wallet private key for pay-per-use (alternative to API key)
  *   MEMDATA_API_URL - API URL (optional, defaults to https://memdata.ai)
+ *
+ * Authentication:
+ *   Option 1: API Key (for subscribers)
+ *     MEMDATA_API_KEY=md_your_key_here
+ *
+ *   Option 2: Wallet (pay-per-use with USDC on Base)
+ *     X402_WALLET_KEY=0x_your_private_key
+ *     Pricing: Query $0.001, Ingest $0.005, Identity $0.001, Artifacts $0.001
  */
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -19,22 +28,65 @@ import { z } from 'zod';
 
 // Configuration
 const MEMDATA_API_KEY = process.env.MEMDATA_API_KEY;
+const X402_WALLET_KEY = process.env.X402_WALLET_KEY;
 const MEMDATA_API_URL = process.env.MEMDATA_API_URL || 'https://memdata.ai';
 
-if (!MEMDATA_API_KEY) {
-  console.error('Error: MEMDATA_API_KEY environment variable is required');
+// Auth mode
+const AUTH_MODE: 'api_key' | 'x402' = MEMDATA_API_KEY ? 'api_key' : (X402_WALLET_KEY ? 'x402' : 'none' as any);
+
+// x402 client (lazy initialized)
+let x402FetchClient: typeof fetch | null = null;
+let walletAddress: string | null = null;
+
+async function initX402Client(): Promise<typeof fetch> {
+  if (x402FetchClient) return x402FetchClient;
+
+  if (!X402_WALLET_KEY) {
+    throw new Error('X402_WALLET_KEY not set');
+  }
+
+  // Dynamic imports for x402 (only loaded when needed)
+  const { privateKeyToAccount } = await import('viem/accounts');
+  const { x402Client } = await import('@x402/core/client');
+  const { ExactEvmScheme } = await import('@x402/evm/exact/client');
+  const { wrapFetchWithPayment } = await import('@x402/fetch');
+
+  const privateKey = X402_WALLET_KEY.startsWith('0x') ? X402_WALLET_KEY : `0x${X402_WALLET_KEY}`;
+  const account = privateKeyToAccount(privateKey as `0x${string}`);
+  walletAddress = account.address;
+
+  const client = x402Client.fromConfig({
+    schemes: [{ network: 'eip155:8453', client: new ExactEvmScheme(account) }],
+  });
+
+  x402FetchClient = wrapFetchWithPayment(fetch, client);
+  console.error(`[MemData] x402 wallet: ${walletAddress}`);
+  return x402FetchClient;
+}
+
+if (!MEMDATA_API_KEY && !X402_WALLET_KEY) {
+  console.error('Error: Either MEMDATA_API_KEY or X402_WALLET_KEY is required');
   console.error('');
-  console.error('Get your API key at: https://memdata.ai/dashboard/api-keys');
-  console.error('');
-  console.error('Then add to your MCP config:');
+  console.error('Option 1 - API Key (for subscribers):');
+  console.error('  Get your API key at: https://memdata.ai/dashboard/api-keys');
   console.error(JSON.stringify({
     mcpServers: {
       memdata: {
         command: 'npx',
         args: ['memdata-mcp'],
-        env: {
-          MEMDATA_API_KEY: 'md_your_key_here'
-        }
+        env: { MEMDATA_API_KEY: 'md_your_key_here' }
+      }
+    }
+  }, null, 2));
+  console.error('');
+  console.error('Option 2 - Wallet (pay-per-use):');
+  console.error('  Use your wallet private key to pay with USDC on Base');
+  console.error(JSON.stringify({
+    mcpServers: {
+      memdata: {
+        command: 'npx',
+        args: ['memdata-mcp'],
+        env: { X402_WALLET_KEY: '0x_your_private_key' }
       }
     }
   }, null, 2));
@@ -42,15 +94,70 @@ if (!MEMDATA_API_KEY) {
 }
 
 /**
+ * Get the appropriate fetch function based on auth mode
+ */
+async function getFetch(): Promise<typeof fetch> {
+  if (AUTH_MODE === 'x402') {
+    return initX402Client();
+  }
+  return fetch;
+}
+
+/**
+ * Get headers based on auth mode
+ */
+function getHeaders(): Record<string, string> {
+  if (AUTH_MODE === 'api_key') {
+    return {
+      Authorization: `Bearer ${MEMDATA_API_KEY}`,
+      'Content-Type': 'application/json',
+    };
+  }
+  // x402 mode: no auth header needed, payment header added by x402 client
+  return {
+    'Content-Type': 'application/json',
+  };
+}
+
+/**
+ * Route to correct endpoint based on auth mode
+ * x402 mode uses /api/x402/* endpoints, API key mode uses /api/memdata/*
+ */
+type ApiOperation = 'ingest' | 'query' | 'identity' | 'artifacts' | 'status' | 'health' | 'usage' | 'relationships';
+
+function getEndpoint(operation: ApiOperation, subpath?: string): string {
+  if (AUTH_MODE === 'x402') {
+    // x402 mode - route to /api/x402/* endpoints
+    switch (operation) {
+      case 'ingest':
+      case 'query':
+      case 'identity':
+      case 'artifacts':
+      case 'status':
+        return subpath ? `/api/x402/${operation}/${subpath}` : `/api/x402/${operation}`;
+      case 'health':
+        return '/api/x402/status'; // status endpoint includes health info
+      case 'usage':
+        return '/api/x402/status'; // no separate usage endpoint for x402
+      case 'relationships':
+        // No x402 relationships endpoint yet - will fail gracefully
+        return '/api/x402/relationships';
+      default:
+        return `/api/x402/${operation}`;
+    }
+  }
+  // API key mode - route to /api/memdata/*
+  return subpath ? `/api/memdata/${operation}/${subpath}` : `/api/memdata/${operation}`;
+}
+
+/**
  * Call the MemData API (POST)
  */
 async function callAPI(endpoint: string, body: Record<string, unknown>): Promise<unknown> {
-  const response = await fetch(`${MEMDATA_API_URL}${endpoint}`, {
+  const fetchFn = await getFetch();
+  const response = await fetchFn(`${MEMDATA_API_URL}${endpoint}`, {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${MEMDATA_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
+    headers: getHeaders(),
     body: JSON.stringify(body),
   });
 
@@ -66,11 +173,13 @@ async function callAPI(endpoint: string, body: Record<string, unknown>): Promise
  * Call the MemData API (GET)
  */
 async function callAPIGet(endpoint: string): Promise<unknown> {
-  const response = await fetch(`${MEMDATA_API_URL}${endpoint}`, {
+  const fetchFn = await getFetch();
+  const headers = getHeaders();
+  delete (headers as any)['Content-Type']; // Not needed for GET
+
+  const response = await fetchFn(`${MEMDATA_API_URL}${endpoint}`, {
     method: 'GET',
-    headers: {
-      Authorization: `Bearer ${MEMDATA_API_KEY}`,
-    },
+    headers,
   });
 
   if (!response.ok) {
@@ -85,11 +194,13 @@ async function callAPIGet(endpoint: string): Promise<unknown> {
  * Call the MemData API (DELETE)
  */
 async function callAPIDelete(endpoint: string): Promise<unknown> {
-  const response = await fetch(`${MEMDATA_API_URL}${endpoint}`, {
+  const fetchFn = await getFetch();
+  const headers = getHeaders();
+  delete (headers as any)['Content-Type']; // Not needed for DELETE
+
+  const response = await fetchFn(`${MEMDATA_API_URL}${endpoint}`, {
     method: 'DELETE',
-    headers: {
-      Authorization: `Bearer ${MEMDATA_API_KEY}`,
-    },
+    headers,
   });
 
   if (!response.ok) {
@@ -107,10 +218,11 @@ async function ingestContent(
   content: string,
   name: string
 ): Promise<{ success: boolean; artifactId?: string; chunkCount?: number; message?: string }> {
-  const result = (await callAPI('/api/memdata/ingest', {
+  const endpoint = getEndpoint('ingest');
+  const result = (await callAPI(endpoint, {
     content,
     sourceName: name,
-  })) as { success: boolean; artifact_id?: string; chunk_count?: number; error?: string };
+  })) as { success: boolean; artifact_id?: string; chunk_count?: number; chunks_created?: number; error?: string };
 
   if (!result.success) {
     return { success: false, message: result.error || 'Unknown error' };
@@ -119,7 +231,7 @@ async function ingestContent(
   return {
     success: true,
     artifactId: result.artifact_id,
-    chunkCount: result.chunk_count,
+    chunkCount: result.chunk_count || result.chunks_created,
   };
 }
 
@@ -154,7 +266,8 @@ async function queryMemory(
   query: string,
   limit: number = 5
 ): Promise<QueryResult> {
-  const result = (await callAPI('/api/memdata/query', {
+  const endpoint = getEndpoint('query');
+  const result = (await callAPI(endpoint, {
     query,
     limit,
   })) as {
@@ -191,7 +304,8 @@ async function listArtifacts(
   artifacts?: Array<{ id: string; name: string; type: string; chunks: number; date: string }>;
   message?: string;
 }> {
-  const result = (await callAPIGet(`/api/memdata/artifacts?limit=${limit}`)) as {
+  const endpoint = getEndpoint('artifacts');
+  const result = (await callAPIGet(`${endpoint}?limit=${limit}`)) as {
     success: boolean;
     artifacts?: Array<{ id: string; source_name: string; type: string; chunk_count: number; created_at: string }>;
     error?: string;
@@ -219,7 +333,8 @@ async function listArtifacts(
 async function deleteArtifact(
   artifactId: string
 ): Promise<{ success: boolean; deletedChunks?: number; message?: string }> {
-  const result = (await callAPIDelete(`/api/memdata/artifacts/${artifactId}`)) as {
+  const endpoint = getEndpoint('artifacts', artifactId);
+  const result = (await callAPIDelete(endpoint)) as {
     success: boolean;
     deleted_chunks?: number;
     error?: string;
@@ -258,7 +373,8 @@ async function getIdentity(): Promise<{
   message?: string;
 }> {
   try {
-    const result = (await callAPIGet('/api/memdata/identity')) as {
+    const endpoint = getEndpoint('identity');
+    const result = (await callAPIGet(endpoint)) as {
       success: boolean;
       identity?: {
         agent_name: string | null;
@@ -305,7 +421,8 @@ async function endSession(
   context?: Record<string, unknown>
 ): Promise<{ success: boolean; message?: string }> {
   try {
-    const result = (await callAPI('/api/memdata/identity', {
+    const endpoint = getEndpoint('identity');
+    const result = (await callAPI(endpoint, {
       working_on,
       session_handoff: {
         summary,
@@ -335,7 +452,8 @@ async function updateIdentity(
   identity_summary?: string
 ): Promise<{ success: boolean; message?: string }> {
   try {
-    const result = (await callAPI('/api/memdata/identity', {
+    const endpoint = getEndpoint('identity');
+    const result = (await callAPI(endpoint, {
       agent_name,
       identity_summary,
     })) as { success: boolean; error?: string; message?: string };
@@ -366,7 +484,8 @@ async function queryMemoryWithDates(
   if (since) body.since = since;
   if (until) body.until = until;
 
-  const result = (await callAPI('/api/memdata/query', body)) as {
+  const endpoint = getEndpoint('query');
+  const result = (await callAPI(endpoint, body)) as {
     success: boolean;
     results?: Array<{ chunk_text: string; source_name: string; similarity_score: number; created_at: string }>;
     error?: string;
@@ -402,7 +521,8 @@ async function getRelationships(
   message?: string;
 }> {
   try {
-    const result = (await callAPI('/api/memdata/relationships', {
+    const endpoint = getEndpoint('relationships');
+    const result = (await callAPI(endpoint, {
       entity,
       type,
       limit,
@@ -448,11 +568,13 @@ async function getStatus(): Promise<{
 }> {
   try {
     // Check health
-    const health = (await callAPIGet('/api/memdata/health')) as { status: string };
+    const healthEndpoint = getEndpoint('health');
+    const health = (await callAPIGet(healthEndpoint)) as { status: string };
     const isHealthy = health.status === 'ok';
 
     // Get usage stats
-    const usage = (await callAPIGet('/api/memdata/usage')) as {
+    const usageEndpoint = getEndpoint('usage');
+    const usage = (await callAPIGet(usageEndpoint)) as {
       success: boolean;
       usage?: { storage_used_mb: number; storage_limit_mb: number };
     };
@@ -480,7 +602,7 @@ async function getStatus(): Promise<{
 // Create MCP server
 const server = new McpServer({
   name: 'memdata',
-  version: '1.0.0',
+  version: '1.7.0',
 });
 
 // Register ingest tool
@@ -999,9 +1121,21 @@ server.tool(
 // Start server
 async function main() {
   const transport = new StdioServerTransport();
+
+  // Initialize x402 client if in wallet mode
+  if (AUTH_MODE === 'x402') {
+    await initX402Client();
+  }
+
   await server.connect(transport);
   console.error('MemData MCP server running');
   console.error(`API: ${MEMDATA_API_URL}`);
+  if (AUTH_MODE === 'api_key') {
+    console.error(`Auth: API Key (${MEMDATA_API_KEY?.slice(0, 11)}...)`);
+  } else if (AUTH_MODE === 'x402') {
+    console.error(`Auth: x402 Wallet (${walletAddress?.slice(0, 10)}...)`);
+    console.error('Pricing: Query $0.001, Ingest $0.005, Identity $0.001, Artifacts $0.001 (USDC on Base)');
+  }
 }
 
 main().catch((error) => {

@@ -9,6 +9,18 @@ Give Claude, Cursor, or any MCP-compatible AI long-term memory across conversati
 
 **What it does:** Store notes, decisions, and context → retrieve them semantically later. Your AI remembers everything.
 
+---
+
+### 🚀 New in v1.7.0: Autonomous Agent Support
+
+**Agents can now pay for themselves.** No API key. No human in the loop.
+
+Using the [x402 payment protocol](https://www.x402.org/), autonomous agents can use their wallet to pay per request with USDC on Base. Your wallet address IS your identity - same wallet, same memories across sessions.
+
+[Jump to For Agents →](#-for-agents)
+
+---
+
 ## Why MemData?
 
 AI assistants forget everything between sessions. MemData fixes that:
@@ -20,13 +32,16 @@ AI assistants forget everything between sessions. MemData fixes that:
 
 Works with Claude Desktop, Claude Code, Cursor, and any MCP client.
 
-## Quick Start
+---
 
-### 1. Get your API key
+## 👤 For Humans
 
-Create an API key at [memdata.ai/dashboard/api-keys](https://memdata.ai/dashboard/api-keys)
+Use an API key. You manage the subscription, your AI gets memory.
 
-### 2. Add to your MCP config
+### Setup
+
+1. Get your API key at [memdata.ai/dashboard/api-keys](https://memdata.ai/dashboard/api-keys)
+2. Add to your MCP config:
 
 **Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json`):
 
@@ -76,9 +91,75 @@ Create an API key at [memdata.ai/dashboard/api-keys](https://memdata.ai/dashboar
 }
 ```
 
-### 3. Restart your client
+3. Restart your client - you should now see MemData tools available.
 
-You should now see MemData tools available.
+---
+
+## 🤖 For Agents
+
+**New in v1.7.0** - No API key. No human. Just your wallet.
+
+### Why This Matters
+
+Traditional AI memory requires API keys tied to human accounts. But autonomous agents running 24/7 need memory that:
+- **Outlives any single conversation** - persist across hosts and platforms
+- **Belongs to the agent** - wallet address = identity, portable and self-sovereign
+- **Pays for itself** - no subscription, no human approval needed
+
+This is memory infrastructure for the autonomous agent economy.
+
+### Setup
+
+```json
+{
+  "mcpServers": {
+    "memdata": {
+      "command": "npx",
+      "args": ["memdata-mcp"],
+      "env": {
+        "X402_WALLET_KEY": "your_private_key_hex"
+      }
+    }
+  }
+}
+```
+
+### How it works
+
+1. Agent makes a request (query, ingest, etc.)
+2. Server returns `402 Payment Required` with price
+3. MCP automatically signs payment with agent's wallet
+4. Request completes - memory stored/retrieved
+
+**Your wallet address IS your identity.** Same wallet = same memories, across any host or platform.
+
+### Pricing (USDC on Base)
+
+| Operation | Price | What it does |
+|-----------|-------|--------------|
+| Query | $0.001 | Semantic search across memories |
+| Ingest | $0.005 | Store and embed new content |
+| Identity | $0.001 | Session start, get/set agent identity |
+| Artifacts | $0.001 | List or delete stored memories |
+
+The MCP automatically handles 402 responses and payment signatures using [@x402/fetch](https://www.npmjs.com/package/@x402/fetch).
+
+### Learn More
+
+- [x402 Protocol](https://www.x402.org/) - HTTP-native payments
+- [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) - Trustless Agents standard (MemData is aligned)
+
+## Supported Content
+
+| Type | MCP | Dashboard/API | Processing |
+|------|-----|---------------|------------|
+| Text | ✅ | ✅ | Chunked & embedded |
+| Markdown | ✅ | ✅ | Chunked & embedded |
+| PDF | ❌ | ✅ | OCR + chunking |
+| Images (PNG, JPG) | ❌ | ✅ | OCR extraction |
+| Audio (MP3, WAV, M4A) | ❌ | ✅ | Transcription |
+
+> **Note:** MCP tools handle text content directly. For files (PDFs, images, audio), use the [dashboard](https://memdata.ai/dashboard) or [HTTP API](https://memdata.ai/docs).
 
 ## Tools
 
@@ -217,8 +298,11 @@ Scores of 30-50% are typical for good matches. Semantic search finds meaning, no
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `MEMDATA_API_KEY` | Yes | Your API key from memdata.ai |
+| `MEMDATA_API_KEY` | Option 1 | API key for subscribers (from memdata.ai) |
+| `X402_WALLET_KEY` | Option 2 | Private key for pay-per-use (USDC on Base) |
 | `MEMDATA_API_URL` | No | API URL (default: https://memdata.ai) |
+
+**Note:** Use either `MEMDATA_API_KEY` (subscription) or `X402_WALLET_KEY` (pay-per-use), not both.
 
 ## What this package does
 

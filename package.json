@@ -1,6 +1,6 @@
 {
   "name": "memdata-mcp",
-  "version": "1.5.0",
+  "version": "1.7.0",
   "mcpName": "io.github.thelabvenice/memdata",
   "description": "MCP server for MemData - persistent memory for AI agents",
   "keywords": [
@@ -37,6 +37,10 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
+    "@x402/core": "^2.2.0",
+    "@x402/evm": "^2.2.0",
+    "@x402/fetch": "^2.2.0",
+    "viem": "^2.0.0",
     "zod": "^3.23.0"
   },
   "devDependencies": {
